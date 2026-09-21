@@ -35,6 +35,12 @@ settings: **9600 baud, 8 data bits, no parity, 1 stop bit** for the UKM-401. The
 opens a connection per command and closes it again, because these adapters usually accept one
 TCP client at a time.
 
+## Icon
+
+`custom_components/orei_ukm/brand/` carries the integration's icon and logo (light and dark),
+made from OREI's own logo, so Home Assistant shows them without a home-assistant/brands entry.
+OREI is a trademark of its owner; the artwork is used only to identify the hardware.
+
 ## UKM-401 protocol
 
 From the OREI manual (commands end with a newline):

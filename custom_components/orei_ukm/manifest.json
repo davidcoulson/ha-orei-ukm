@@ -9,5 +9,5 @@
   "issue_tracker": "https://github.com/davidcoulson/ha-orei-ukm/issues",
   "loggers": ["custom_components.orei_ukm"],
   "requirements": ["pyserial-asyncio-fast>=0.16"],
-  "version": "2026.09.21.1"
+  "version": "2026.09.21.2"
 }
