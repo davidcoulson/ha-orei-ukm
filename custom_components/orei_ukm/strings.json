@@ -1,0 +1,54 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "How is the switch connected?",
+        "menu_options": {
+          "tcp": "Ethernet-to-RS-232 adapter (TCP)",
+          "serial": "Serial port on this Home Assistant host"
+        }
+      },
+      "tcp": {
+        "title": "Ethernet-to-RS-232 adapter",
+        "description": "The adapter must be in TCP server (raw socket) mode and set to the switch's serial settings (9600 8N1 for the UKM-401).",
+        "data": { "host": "Adapter address", "port": "TCP port", "model": "Switch model" }
+      },
+      "serial": {
+        "title": "Serial port",
+        "data": { "serial_device": "Serial device", "model": "Switch model" }
+      }
+    },
+    "error": {
+      "cannot_connect": "The switch did not answer a status request. Check the address, port and the adapter's serial settings."
+    },
+    "abort": { "already_configured": "This switch is already set up." }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Inputs",
+        "description": "Name each input after what is plugged into it. The names become the options of the input selector.",
+        "data": {
+          "input_1": "Input 1", "input_2": "Input 2", "input_3": "Input 3", "input_4": "Input 4",
+          "scan_interval": "Status check interval (seconds)"
+        }
+      }
+    },
+    "error": { "duplicate_names": "Each input needs a different name." }
+  },
+  "entity": {
+    "select": { "input": { "name": "Input" } },
+    "binary_sensor": { "signal": { "name": "Signal" } },
+    "button": { "restart": { "name": "Restart" } }
+  },
+  "services": {
+    "send_command": {
+      "name": "Send command",
+      "description": "Send one raw RS-232 command line to the switch and return its reply.",
+      "fields": {
+        "config_entry_id": { "name": "Switch", "description": "The switch to send to." },
+        "command": { "name": "Command", "description": "The command, without a line ending, e.g. Status or PS12R." }
+      }
+    }
+  }
+}

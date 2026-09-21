@@ -1,0 +1,13 @@
+{
+  "domain": "orei_ukm",
+  "name": "OREI HDMI Switch (RS-232)",
+  "codeowners": ["@davidcoulson"],
+  "config_flow": true,
+  "documentation": "https://github.com/davidcoulson/ha-orei-ukm",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/davidcoulson/ha-orei-ukm/issues",
+  "loggers": ["custom_components.orei_ukm"],
+  "requirements": ["pyserial-asyncio-fast>=0.16"],
+  "version": "2026.09.21.1"
+}

@@ -1,0 +1,12 @@
+send_command:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: orei_ukm
+    command:
+      required: true
+      example: Status
+      selector:
+        text:

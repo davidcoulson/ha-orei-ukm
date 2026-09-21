@@ -1,0 +1,21 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    name: pytest against Home Assistant
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          # Home Assistant 2026.9 runs on Python 3.14.
+          python-version: "3.14"
+      - name: Install test dependencies
+        run: pip install -r requirements_test.txt
+      - name: Run tests
+        run: pytest -q

@@ -1,0 +1,27 @@
+name: Release
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  release-zip:
+    name: Build and attach orei_ukm.zip
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create orei_ukm.zip
+        run: |
+          cd custom_components/orei_ukm
+          zip -r "${{ github.workspace }}/orei_ukm.zip" . -x '*/__pycache__/*' '__pycache__/*'
+
+      - name: Upload orei_ukm.zip to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: orei_ukm.zip
