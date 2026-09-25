@@ -11,6 +11,7 @@ from custom_components.orei_ukm.const import CONF_INPUT_NAMES, DOMAIN
 SELECT = "select.orei_ukm_401_127_0_0_1_input"
 SIGNAL = "binary_sensor.orei_ukm_401_127_0_0_1_signal"
 RESTART = "button.orei_ukm_401_127_0_0_1_restart"
+LINK = "binary_sensor.orei_ukm_401_127_0_0_1_link"
 
 
 async def test_entities_when_nothing_is_live(hass, setup_switch):
@@ -45,6 +46,25 @@ async def test_send_command_returns_reply(hass, setup_switch):
         DOMAIN, "send_command", {"config_entry_id": setup_switch.entry_id, "command": "Status"},
         blocking=True, return_response=True)
     assert response == {"reply": "Status:\r\nBaud 9600\r\nNA"}
+
+
+async def test_link_sensor_follows_the_status_poll(hass, setup_switch, fake_switch):
+    link = hass.states.get(LINK)
+    assert link.state == "on"
+    assert link.attributes["last_reply"] == "Status:\r\nBaud 9600\r\nNA"
+    assert link.attributes["last_error"] is None
+    assert link.attributes["failures"] == 0
+
+    # The adapter goes away: the other entities drop out, the link sensor says why and stays.
+    await fake_switch.stop()
+    await setup_switch.runtime_data.coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(SELECT).state == "unavailable"
+    link = hass.states.get(LINK)
+    assert link.state == "off"
+    assert "Cannot connect" in link.attributes["last_error"]
+    assert link.attributes["failures"] == 1
+    await fake_switch.start()  # so the fixture's stop has a server to close
 
 
 async def test_unload(hass, setup_switch):

@@ -38,7 +38,7 @@
   },
   "entity": {
     "select": { "input": { "name": "Input" } },
-    "binary_sensor": { "signal": { "name": "Signal" } },
+    "binary_sensor": { "signal": { "name": "Signal" }, "link": { "name": "Link" } },
     "button": { "restart": { "name": "Restart" } }
   },
   "services": {

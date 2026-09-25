@@ -11,6 +11,7 @@ added in `protocol.py`.
 |---|---|
 | `select.<switch>_input` | The live input, named after what is plugged in (Wii, Xbox, …). Choosing an option switches. `unknown` when no input has a signal. |
 | `binary_sensor.<switch>_signal` | On while any input has a live source. |
+| `binary_sensor.<switch>_link` | On while the switch answers the status poll (every 30 s by default), which proves the whole path: network, adapter, RS-232 cable, switch. Stays available when the path is down, with the last reply, the last error and the time of the last answer as attributes. |
 | `button.<switch>_restart` | Restarts the switch (its `Reset` command). |
 | Action `orei_ukm.send_command` | Sends any raw command line and returns the reply, e.g. `Status`. |
 

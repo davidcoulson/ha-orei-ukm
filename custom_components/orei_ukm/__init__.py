@@ -6,8 +6,8 @@ through an Ethernet-to-RS-232 adapter (raw TCP) or a serial port on the Home Ass
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import timedelta
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 import logging
 
 import voluptuous as vol
@@ -18,6 +18,7 @@ from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, Supp
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .client import OreiClient, SerialTransport, TcpTransport
 from .const import (
@@ -40,9 +41,21 @@ PLATFORMS = [Platform.SELECT, Platform.BINARY_SENSOR, Platform.BUTTON]
 
 
 @dataclass
+class Link:
+    """How the last status polls went: the Link sensor reads this, so it can say the serial
+    path is dead while the other entities are simply unavailable."""
+
+    last_success: datetime | None = None
+    last_reply: str | None = None
+    last_error: str | None = None
+    failures: int = 0
+
+
+@dataclass
 class OreiData:
     client: OreiClient
     coordinator: DataUpdateCoordinator[Status]
+    link: Link = field(default_factory=Link)
 
 
 type OreiConfigEntry = ConfigEntry[OreiData]
@@ -59,12 +72,22 @@ def build_client(data: dict) -> OreiClient:
 
 async def async_setup_entry(hass: HomeAssistant, entry: OreiConfigEntry) -> bool:
     client = build_client(dict(entry.data))
+    link = Link()
 
+    # Every poll is the switch's Status command over the whole path (network, adapter, RS-232,
+    # switch): a reply proves the path end to end, which is what the Link sensor reports.
     async def _update() -> Status:
         try:
-            return await client.status()
+            status = await client.status()
         except OreiError as err:
+            link.last_error = str(err)
+            link.failures += 1
             raise UpdateFailed(str(err)) from err
+        link.last_success = dt_util.utcnow()
+        link.last_reply = status.raw
+        link.last_error = None
+        link.failures = 0
+        return status
 
     coordinator = DataUpdateCoordinator(
         hass,
@@ -75,7 +98,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OreiConfigEntry) -> bool
         update_interval=timedelta(seconds=entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)),
     )
     await coordinator.async_config_entry_first_refresh()
-    entry.runtime_data = OreiData(client, coordinator)
+    entry.runtime_data = OreiData(client, coordinator, link)
     entry.async_on_unload(entry.add_update_listener(_reload_on_options))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
