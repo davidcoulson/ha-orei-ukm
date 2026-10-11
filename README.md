@@ -1,5 +1,12 @@
 # OREI HDMI Switch (RS-232) for Home Assistant
 
+## TL;DR
+
+- **Switch HDMI inputs from Home Assistant.** Pick "Xbox" or "Wii" from a dropdown, or switch in an automation or a dashboard button, instead of reaching for the switch's own buttons.
+- **Knows what's live.** Shows which input is active, whether anything is playing, and tells you plainly when you pick an input whose device is turned off.
+- **Knows when it can't reach the switch.** A connection sensor shows when the network adapter, cable or switch stops answering, and a button restarts the switch.
+- **For the OREI UKM-401** 4-port HDMI switch, controlled through its RS-232 port (with a network-to-serial adapter or a USB serial cable). Set up entirely in the UI.
+
 Control an OREI HDMI switch from Home Assistant over its RS-232 port, through an
 Ethernet-to-RS-232 adapter or a serial port on the Home Assistant host. Built for the
 **UKM-401** 4x1 4K HDMI KVM; other OREI switches with the same one-line protocol can be
