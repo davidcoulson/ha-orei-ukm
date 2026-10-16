@@ -121,3 +121,49 @@ async def test_serial_close_is_awaited(monkeypatch, close_result):
         await first
     assert writer.wait_closed.await_count >= 1
     assert not client._lock.locked()
+
+
+@pytest.mark.parametrize("phase", ["write", "drain", "read", "close"])
+@pytest.mark.parametrize("error", [OSError, ConnectionResetError])
+async def test_transport_errors_are_normalized(monkeypatch, phase, error):
+    reader = Mock(read=AsyncMock(return_value=b""))
+    writer = Mock(drain=AsyncMock(), wait_closed=AsyncMock())
+    operation = reader.read if phase == "read" else getattr(writer, phase)
+    operation.side_effect = error("connection lost")
+    monkeypatch.setattr(asyncio, "open_connection", AsyncMock(return_value=(reader, writer)))
+    client = client_for(type("Switch", (), {"port": 1})())
+    with pytest.raises(OreiError, match="connection lost"):
+        await client.command("Status")
+    assert not client._lock.locked()
+    operation.side_effect = None
+    assert await client.command("Reset") == ""
+
+
+@pytest.mark.parametrize("close_result", ["clean", "blocked", "error"])
+async def test_command_preserves_cancellation(monkeypatch, close_result):
+    from custom_components.orei_ukm import client as client_module
+
+    draining = asyncio.Event()
+
+    async def drain():
+        draining.set()
+        await asyncio.Event().wait()
+
+    async def wait_closed():
+        if close_result == "blocked":
+            await asyncio.Event().wait()
+
+    reader = Mock(read=AsyncMock(return_value=b""))
+    writer = Mock(drain=AsyncMock(side_effect=drain), wait_closed=AsyncMock(side_effect=wait_closed))
+    if close_result == "error":
+        writer.close.side_effect = OSError("close failed")
+    monkeypatch.setattr(asyncio, "open_connection", AsyncMock(return_value=(reader, writer)))
+    monkeypatch.setattr(client_module, "CLOSE_TIMEOUT", 0.01)
+    client = client_for(type("Switch", (), {"port": 1})())
+    task = asyncio.create_task(client.command("Status"))
+    await draining.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert writer.close.called
+    assert not client._lock.locked()

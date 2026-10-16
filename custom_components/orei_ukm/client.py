@@ -94,6 +94,8 @@ class OreiClient:
                     return await _read_reply(reader)
             except TimeoutError as err:
                 raise OreiError("Command transaction timed out") from err
+            except OSError as err:
+                raise OreiError(f"Communication failed with {self.transport.description}: {err}") from err
 
     async def status(self) -> Status:
         return parse_status(await self.command(self.model.status_command), self.model)
@@ -110,11 +112,20 @@ class OreiClient:
 
 
 async def _close_writer(writer: asyncio.StreamWriter) -> None:
-    writer.close()
+    try:
+        writer.close()
+    except OSError:
+        task = asyncio.current_task()
+        if task is not None and task.cancelling():
+            return
+        raise
     try:
         async with asyncio.timeout(CLOSE_TIMEOUT):
             await writer.wait_closed()
     except TimeoutError as err:
+        task = asyncio.current_task()
+        if task is not None and task.cancelling():
+            return  # preserve the cancellation that triggered teardown
         raise OreiError("Connection close timed out") from err
     except OSError:
         pass
