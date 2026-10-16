@@ -14,6 +14,9 @@ from typing import AsyncIterator
 
 from .protocol import Model, OreiError, Status, check_select_reply, parse_status, select_command
 
+COMMAND_TIMEOUT = 10.0  # entire transaction; cancellation cleanup has its own bound
+CLOSE_TIMEOUT = 1.0
+MAX_REPLY_BYTES = 4096
 CONNECT_TIMEOUT = 5.0
 REPLY_TIMEOUT = 2.0   # wait this long for the first byte
 QUIET_TIME = 0.25     # then stop once the switch has been silent this long
@@ -46,11 +49,7 @@ class TcpTransport(Transport):
         try:
             yield reader, writer
         finally:
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except OSError:
-                pass
+            await _close_writer(writer)
 
 
 class SerialTransport(Transport):
@@ -74,7 +73,7 @@ class SerialTransport(Transport):
         try:
             yield reader, writer
         finally:
-            writer.close()
+            await _close_writer(writer)
 
 
 class OreiClient:
@@ -87,10 +86,14 @@ class OreiClient:
 
     async def command(self, command: str) -> str:
         """Send one command line and return the reply text (may be empty)."""
-        async with self._lock, self.transport.open() as (reader, writer):
-            writer.write((command + self.model.line_ending).encode("ascii"))
-            await writer.drain()
-            return await _read_reply(reader)
+        async with self._lock:
+            try:
+                async with asyncio.timeout(COMMAND_TIMEOUT), self.transport.open() as (reader, writer):
+                    writer.write((command + self.model.line_ending).encode("ascii"))
+                    await writer.drain()
+                    return await _read_reply(reader)
+            except TimeoutError as err:
+                raise OreiError("Command transaction timed out") from err
 
     async def status(self) -> Status:
         return parse_status(await self.command(self.model.status_command))
@@ -106,8 +109,20 @@ class OreiClient:
         await self.command(self.model.reset_command)
 
 
+async def _close_writer(writer: asyncio.StreamWriter) -> None:
+    writer.close()
+    try:
+        async with asyncio.timeout(CLOSE_TIMEOUT):
+            await writer.wait_closed()
+    except TimeoutError as err:
+        raise OreiError("Connection close timed out") from err
+    except OSError:
+        pass
+
+
 async def _read_reply(reader: asyncio.StreamReader) -> str:
     chunks: list[bytes] = []
+    size = 0
     timeout = REPLY_TIMEOUT
     while True:
         try:
@@ -116,6 +131,9 @@ async def _read_reply(reader: asyncio.StreamReader) -> str:
             break
         if not data:
             break
+        size += len(data)
+        if size > MAX_REPLY_BYTES:
+            raise OreiError("Reply exceeds size limit")
         chunks.append(data)
         timeout = QUIET_TIME
     return b"".join(chunks).decode("ascii", errors="replace")
