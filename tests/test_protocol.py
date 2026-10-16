@@ -35,7 +35,7 @@ def test_no_signal_reply_seen_on_real_switch():
     with pytest.raises(NoSignalError):
         check_select_reply("please insert HDMI\r\n", 3)
     check_select_reply("PS13R OK\r\n", 3)  # no exception
-    check_select_reply("", 3)              # silence is not a refusal
+    assert check_select_reply("", 3) is False  # requires a fresh status confirmation
 
 
 @pytest.mark.parametrize("reply", [
@@ -53,3 +53,9 @@ def test_status_uses_model_input_limit():
     model = replace(MODELS["UKM-401"], inputs=2)
     with pytest.raises(OreiError):
         parse_status("PS13R OK", model)
+
+
+@pytest.mark.parametrize("reply", ["error", "PS11R OK", "PS13R", "garbage", "PS13R OK\nerror"])
+def test_select_rejects_invalid_acknowledgements(reply):
+    with pytest.raises(OreiError):
+        check_select_reply(reply, 3)

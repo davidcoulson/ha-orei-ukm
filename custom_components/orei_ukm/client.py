@@ -103,7 +103,9 @@ class OreiClient:
     async def select_input(self, number: int) -> None:
         """Switch to input `number` (1-based). Raises NoSignalError if nothing is live there."""
         reply = await self.command(select_command(self.model, number))
-        check_select_reply(reply, number)
+        if not check_select_reply(reply, number, self.model):
+            if (await self.status()).input != number:
+                raise OreiError(f"Switch did not confirm input {number}")
 
     async def reset(self) -> None:
         if not self.model.reset_command:

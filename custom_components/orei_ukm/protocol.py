@@ -106,7 +106,13 @@ def select_command(model: Model, number: int) -> str:
     return model.select_template.format(n=number)
 
 
-def check_select_reply(reply: str, number: int) -> None:
-    """Raise if the reply to a select command says it did not switch."""
+def check_select_reply(reply: str, number: int, model: Model = MODELS[DEFAULT_MODEL]) -> bool:
+    """Validate an acknowledgement; return False if silence needs confirmation."""
     if _NO_SIGNAL.search(reply):
         raise NoSignalError(f"Input {number} has no signal; turn on the device connected to it first")
+    text = reply.strip()
+    if not text:
+        return False
+    if text != f"{select_command(model, number)} OK":
+        raise OreiError(f"Unexpected acknowledgement for input {number}: {text!r}")
+    return True

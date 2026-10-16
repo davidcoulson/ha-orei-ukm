@@ -167,3 +167,26 @@ async def test_command_preserves_cancellation(monkeypatch, close_result):
         await task
     assert writer.close.called
     assert not client._lock.locked()
+
+
+@pytest.mark.parametrize("status", ["PS13R OK", "PS12R OK", "NA", "Baud 9600", OreiError("offline")])
+async def test_silent_selection_requires_confirmation(monkeypatch, status):
+    client = client_for(type("Switch", (), {"port": 1})())
+    command = AsyncMock(side_effect=["", status])
+    monkeypatch.setattr(client, "command", command)
+    if status == "PS13R OK":
+        await client.select_input(3)
+    else:
+        with pytest.raises(OreiError):
+            await client.select_input(3)
+    assert [call.args[0] for call in command.await_args_list] == ["PS13R", "Status"]
+
+
+@pytest.mark.parametrize("reply", ["error", "PS11R OK"])
+async def test_selection_rejects_failure_without_confirmation(monkeypatch, reply):
+    client = client_for(type("Switch", (), {"port": 1})())
+    command = AsyncMock(return_value=reply)
+    monkeypatch.setattr(client, "command", command)
+    with pytest.raises(OreiError):
+        await client.select_input(3)
+    command.assert_awaited_once_with("PS13R")
