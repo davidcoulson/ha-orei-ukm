@@ -47,10 +47,9 @@ MODELS: dict[str, Model] = {
 
 DEFAULT_MODEL = "UKM-401"
 
-_SELECTED = re.compile(r"PS1(\d)R")
+_SELECTED = re.compile(r"PS1(\d)R OK")
 _BAUD = re.compile(r"Baud\s+(\d+)")
 _NO_SIGNAL = re.compile(r"insert\s+HDMI", re.IGNORECASE)
-_NA = re.compile(r"(^|\s)NA(\s|$)")
 
 
 class OreiError(Exception):
@@ -70,7 +69,7 @@ class Status:
     raw: str
 
 
-def parse_status(reply: str) -> Status:
+def parse_status(reply: str, model: Model = MODELS[DEFAULT_MODEL]) -> Status:
     """Parse a status reply.
 
     >>> parse_status("Status:\\r\\nBaud 9600\\r\\nPS12R OK\\r\\n").input
@@ -81,15 +80,23 @@ def parse_status(reply: str) -> Status:
     text = reply.strip()
     if not text:
         raise OreiError("Empty reply to status")
-    selected = _SELECTED.search(text)
-    baud = _BAUD.search(text)
-    if not selected and not _NA.search(text) and not baud:
-        raise OreiError(f"Unrecognised status reply: {text!r}")
-    return Status(
-        input=int(selected.group(1)) if selected else None,
-        baudrate=int(baud.group(1)) if baud else None,
-        raw=text,
-    )
+    states: list[int | None] = []
+    baudrate = None
+    for line in text.splitlines():
+        line = line.strip()
+        selected = _SELECTED.fullmatch(line)
+        baud = _BAUD.fullmatch(line)
+        if selected and 1 <= int(selected.group(1)) <= model.inputs:
+            states.append(int(selected.group(1)))
+        elif line == "NA":
+            states.append(None)
+        elif baud:
+            baudrate = int(baud.group(1))
+        elif line not in ("", "Status:"):
+            raise OreiError(f"Unrecognised status reply: {text!r}")
+    if len(states) != 1:
+        raise OreiError("Status reply must contain exactly one valid state")
+    return Status(input=states[0], baudrate=baudrate, raw=text)
 
 
 def select_command(model: Model, number: int) -> str:

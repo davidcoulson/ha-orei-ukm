@@ -96,7 +96,7 @@ class OreiClient:
                 raise OreiError("Command transaction timed out") from err
 
     async def status(self) -> Status:
-        return parse_status(await self.command(self.model.status_command))
+        return parse_status(await self.command(self.model.status_command), self.model)
 
     async def select_input(self, number: int) -> None:
         """Switch to input `number` (1-based). Raises NoSignalError if nothing is live there."""

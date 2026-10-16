@@ -36,3 +36,20 @@ def test_no_signal_reply_seen_on_real_switch():
         check_select_reply("please insert HDMI\r\n", 3)
     check_select_reply("PS13R OK\r\n", 3)  # no exception
     check_select_reply("", 3)              # silence is not a refusal
+
+
+@pytest.mark.parametrize("reply", [
+    "Status:\r\nBaud 9600\r\n", "PS10R OK", "PS15R OK", "PS19R OK",
+    "prefixPS12R OK", "PS12R OK suffix", "PS12R OK\nNA", "PS11R OK\nPS12R OK",
+])
+def test_status_requires_valid_complete_state(reply):
+    with pytest.raises(OreiError):
+        parse_status(reply)
+
+
+def test_status_uses_model_input_limit():
+    from dataclasses import replace
+
+    model = replace(MODELS["UKM-401"], inputs=2)
+    with pytest.raises(OreiError):
+        parse_status("PS13R OK", model)
