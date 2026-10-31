@@ -44,6 +44,9 @@ async def test_options_reject_duplicate_names(hass, setup_switch):
 
 
 async def test_reconfigure_changes_address_and_keeps_identity(hass, setup_switch, fake_switch):
+    from pytest_socket import socket_allow_hosts
+
+    socket_allow_hosts(["127.0.0.1", "localhost", "::1"])   # "localhost" tries ::1 first
     from homeassistant.helpers import entity_registry as er
 
     unique_id = setup_switch.unique_id
