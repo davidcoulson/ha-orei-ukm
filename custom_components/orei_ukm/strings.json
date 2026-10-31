@@ -13,6 +13,11 @@
         "description": "The adapter must be in TCP server (raw socket) mode and set to the switch's serial settings (9600 8N1 for the UKM-401).",
         "data": { "host": "Adapter address", "port": "TCP port", "model": "Switch model" }
       },
+      "reconfigure": {
+        "title": "Change the switch's address",
+        "description": "Where Home Assistant reaches the switch. Entities and history are kept.",
+        "data": { "host": "Adapter address", "port": "TCP port", "serial_device": "Serial device" }
+      },
       "serial": {
         "title": "Serial port",
         "data": { "serial_device": "Serial device", "model": "Switch model" }
@@ -21,7 +26,10 @@
     "error": {
       "cannot_connect": "The switch did not answer a status request. Check the address, port and the adapter's serial settings."
     },
-    "abort": { "already_configured": "This switch is already set up." }
+    "abort": {
+      "already_configured": "This switch is already set up.",
+      "reconfigure_successful": "The switch's address was updated."
+    }
   },
   "options": {
     "step": {

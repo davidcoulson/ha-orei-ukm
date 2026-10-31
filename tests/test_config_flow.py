@@ -41,3 +41,26 @@ async def test_options_reject_duplicate_names(hass, setup_switch):
     dupes = {"input_1": "Wii", "input_2": "Wii", "input_3": "C", "input_4": "D", "scan_interval": 30}
     result = await hass.config_entries.options.async_configure(result["flow_id"], dupes)
     assert result["errors"] == {"base": "duplicate_names"}
+
+
+async def test_reconfigure_changes_address_and_keeps_identity(hass, setup_switch, fake_switch):
+    from homeassistant.helpers import entity_registry as er
+
+    unique_id = setup_switch.unique_id
+    select_id = er.async_get(hass).async_get_entity_id("select", DOMAIN, f"{unique_id}_input")
+    result = await setup_switch.start_reconfigure_flow(hass)
+    assert result["type"] is FlowResultType.FORM
+    # Same fake switch, reached by another name for the loopback address.
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_HOST: "localhost", CONF_PORT: fake_switch.port})
+    await hass.async_block_till_done()
+    assert result["type"] is FlowResultType.ABORT and result["reason"] == "reconfigure_successful"
+    assert setup_switch.data[CONF_HOST] == "localhost"
+    assert setup_switch.unique_id == unique_id
+    assert er.async_get(hass).async_get_entity_id("select", DOMAIN, f"{unique_id}_input") == select_id
+
+
+async def test_reconfigure_rejects_unreachable_address(hass, setup_switch):
+    result = await setup_switch.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_HOST: "127.0.0.1", CONF_PORT: 1})
+    assert result["type"] is FlowResultType.FORM and result["errors"] == {"base": "cannot_connect"}
+    assert setup_switch.data[CONF_PORT] != 1

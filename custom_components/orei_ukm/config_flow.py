@@ -65,6 +65,29 @@ class OreiConfigFlow(ConfigFlow, domain=DOMAIN):
         })
         return self.async_show_form(step_id="serial", data_schema=schema, errors=errors)
 
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Point the entry at a new host/port or serial device. The unique id is kept as it was,
+        so the device and entity ids do not change."""
+        entry = self._get_reconfigure_entry()
+        serial = entry.data.get(CONF_TRANSPORT) == TRANSPORT_SERIAL
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data = {**entry.data, **user_input}
+            if (error := await _probe(data)) is None:
+                # The entry's update listener reloads it, so no reload here.
+                self.hass.config_entries.async_update_entry(entry, data=data)
+                return self.async_abort(reason="reconfigure_successful")
+            errors["base"] = error
+        current = user_input or entry.data
+        if serial:
+            schema = vol.Schema({vol.Required(CONF_SERIAL_DEVICE, default=current[CONF_SERIAL_DEVICE]): str})
+        else:
+            schema = vol.Schema({
+                vol.Required(CONF_HOST, default=current[CONF_HOST]): str,
+                vol.Required(CONF_PORT, default=current[CONF_PORT]): vol.All(vol.Coerce(int), vol.Range(1, 65535)),
+            })
+        return self.async_show_form(step_id="reconfigure", data_schema=schema, errors=errors)
+
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
