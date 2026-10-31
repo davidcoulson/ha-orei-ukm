@@ -15,8 +15,8 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
-from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers import config_validation as cv
+from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import config_validation as cv, issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -30,6 +30,7 @@ from .const import (
     CONF_TRANSPORT,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    UNREACHABLE_AFTER,
     SERVICE_SEND_COMMAND,
     TRANSPORT_SERIAL,
 )
@@ -82,7 +83,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: OreiConfigEntry) -> bool
         except OreiError as err:
             link.last_error = str(err)
             link.failures += 1
+            if link.failures >= UNREACHABLE_AFTER:
+                _set_unreachable(hass, entry, client, True)
             raise UpdateFailed(str(err)) from err
+        _set_unreachable(hass, entry, client, False)
         link.last_success = dt_util.utcnow()
         link.last_reply = status.raw
         link.last_error = None
@@ -97,7 +101,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: OreiConfigEntry) -> bool
         update_method=_update,
         update_interval=timedelta(seconds=entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)),
     )
-    await coordinator.async_config_entry_first_refresh()
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except ConfigEntryNotReady:
+        # Setup retries on its own schedule and rebuilds the poll state each time, so raise the
+        # issue now rather than waiting for UNREACHABLE_AFTER polls that never accumulate.
+        _set_unreachable(hass, entry, client, True)
+        raise
     entry.runtime_data = OreiData(client, coordinator, link)
     entry.async_on_unload(entry.add_update_listener(_reload_on_options))
 
@@ -107,7 +117,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: OreiConfigEntry) -> bool
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: OreiConfigEntry) -> bool:
+    _set_unreachable(hass, entry, entry.runtime_data.client, False)
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+def _set_unreachable(hass: HomeAssistant, entry: OreiConfigEntry, client: OreiClient, unreachable: bool) -> None:
+    """Show (or clear) the Repairs issue; creating it again for the same id is a no-op update."""
+    issue_id = f"unreachable_{entry.entry_id}"
+    if unreachable:
+        ir.async_create_issue(
+            hass, DOMAIN, issue_id, is_fixable=False, severity=ir.IssueSeverity.ERROR,
+            translation_key="unreachable", translation_placeholders={"host": client.transport.description},
+        )
+    else:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
 
 
 async def _reload_on_options(hass: HomeAssistant, entry: OreiConfigEntry) -> None:

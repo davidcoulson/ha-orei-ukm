@@ -13,6 +13,7 @@ TRANSPORT_SERIAL = "serial"
 
 DEFAULT_PORT = 4196  # USR-style serial servers; change to your adapter's port
 DEFAULT_SCAN_INTERVAL = 30
+UNREACHABLE_AFTER = 3  # consecutive failed polls before a Repairs issue is raised
 
 SERVICE_SEND_COMMAND = "send_command"
 ATTR_COMMAND = "command"

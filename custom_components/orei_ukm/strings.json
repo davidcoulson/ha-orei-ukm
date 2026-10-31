@@ -41,6 +41,12 @@
     "binary_sensor": { "signal": { "name": "Signal" }, "link": { "name": "Link" } },
     "button": { "restart": { "name": "Restart" } }
   },
+  "issues": {
+    "unreachable": {
+      "title": "OREI switch unreachable",
+      "description": "Home Assistant cannot reach the OREI switch at {host}. Check that the switch and its Ethernet-to-RS-232 adapter are powered on, and that the address has not changed (set a DHCP reservation for the adapter). This issue clears by itself once the switch answers."
+    }
+  },
   "services": {
     "send_command": {
       "name": "Send command",

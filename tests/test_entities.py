@@ -1,5 +1,7 @@
 """Entities and the raw-command action, running inside Home Assistant."""
 
+import asyncio
+
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -69,3 +71,23 @@ async def test_link_sensor_follows_the_status_poll(hass, setup_switch, fake_swit
 
 async def test_unload(hass, setup_switch):
     assert await hass.config_entries.async_unload(setup_switch.entry_id)
+
+
+async def test_unreachable_raises_repairs_issue_after_three_failures_then_clears(hass, setup_switch, fake_switch):
+    from homeassistant.helpers import issue_registry as ir
+
+    issue_id = f"unreachable_{setup_switch.entry_id}"
+    registry = ir.async_get(hass)
+    coordinator = setup_switch.runtime_data.coordinator
+    await fake_switch.stop()
+    for _ in range(2):
+        await coordinator.async_refresh()
+    assert registry.async_get_issue(DOMAIN, issue_id) is None  # a blip is not an outage
+    await coordinator.async_refresh()
+    issue = registry.async_get_issue(DOMAIN, issue_id)
+    assert issue.severity == ir.IssueSeverity.ERROR and not issue.is_fixable
+    assert issue.translation_placeholders == {"host": f"127.0.0.1:{fake_switch.port}"}
+
+    fake_switch.server = await asyncio.start_server(fake_switch._handle, "127.0.0.1", fake_switch.port)  # same port
+    await coordinator.async_refresh()
+    assert registry.async_get_issue(DOMAIN, issue_id) is None
