@@ -38,6 +38,8 @@ class OreiConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             data = {CONF_TRANSPORT: TRANSPORT_TCP, **user_input}
+            # Match current data too: a reconfigured entry keeps its old address as unique id.
+            self._async_abort_entries_match({CONF_HOST: user_input[CONF_HOST], CONF_PORT: user_input[CONF_PORT]})
             await self.async_set_unique_id(f"{user_input[CONF_HOST]}:{user_input[CONF_PORT]}")
             self._abort_if_unique_id_configured()
             if (error := await _probe(data)) is None:
@@ -54,6 +56,7 @@ class OreiConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             data = {CONF_TRANSPORT: TRANSPORT_SERIAL, **user_input}
+            self._async_abort_entries_match({CONF_SERIAL_DEVICE: user_input[CONF_SERIAL_DEVICE]})
             await self.async_set_unique_id(user_input[CONF_SERIAL_DEVICE])
             self._abort_if_unique_id_configured()
             if (error := await _probe(data)) is None:
@@ -73,8 +76,8 @@ class OreiConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             data = {**entry.data, **user_input}
+            self._async_abort_entries_match({k: data[k] for k in user_input})
             if (error := await _probe(data)) is None:
-                # The entry's update listener reloads it, so no reload here.
                 self.hass.config_entries.async_update_entry(entry, data=data)
                 return self.async_abort(reason="reconfigure_successful")
             errors["base"] = error
