@@ -69,6 +69,25 @@ async def test_reconfigure_rejects_unreachable_address(hass, setup_switch):
     assert setup_switch.data[CONF_PORT] != 1
 
 
+async def test_reconfigure_reloads_entry_stuck_in_setup_retry(hass, fake_switch):
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from homeassistant.config_entries import ConfigEntryState
+
+    entry = MockConfigEntry(
+        domain=DOMAIN, unique_id="127.0.0.1:1",
+        data={"transport": "tcp", CONF_HOST: "127.0.0.1", CONF_PORT: 1, CONF_MODEL: "UKM-401"},
+    )
+    entry.add_to_hass(hass)
+    assert not await hass.config_entries.async_setup(entry.entry_id)
+    assert entry.state is ConfigEntryState.SETUP_RETRY
+    result = await entry.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_HOST: "127.0.0.1", CONF_PORT: fake_switch.port})
+    await hass.async_block_till_done()
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.state is ConfigEntryState.LOADED
+
+
 async def test_reconfigure_rejects_address_of_another_entry(hass, setup_switch, fake_switch):
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 

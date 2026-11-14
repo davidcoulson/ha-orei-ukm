@@ -79,6 +79,8 @@ class OreiConfigFlow(ConfigFlow, domain=DOMAIN):
             self._async_abort_entries_match({k: data[k] for k in user_input})
             if (error := await _probe(data)) is None:
                 self.hass.config_entries.async_update_entry(entry, data=data)
+                if not entry.update_listeners:  # a setup-retry entry has no listener yet
+                    self.hass.config_entries.async_schedule_reload(entry.entry_id)
                 return self.async_abort(reason="reconfigure_successful")
             errors["base"] = error
         current = user_input or entry.data
