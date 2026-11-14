@@ -9,7 +9,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import callback
-from homeassistant.helpers import selector
+from homeassistant.helpers import device_registry as dr, entity_registry as er, selector
 
 from . import build_client
 from .const import (
@@ -38,6 +38,8 @@ class OreiConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             data = {CONF_TRANSPORT: TRANSPORT_TCP, **user_input}
+            # Match current data too: a reconfigured entry keeps its old address as unique id.
+            self._async_abort_entries_match({CONF_HOST: user_input[CONF_HOST], CONF_PORT: user_input[CONF_PORT]})
             await self.async_set_unique_id(f"{user_input[CONF_HOST]}:{user_input[CONF_PORT]}")
             self._abort_if_unique_id_configured()
             if (error := await _probe(data)) is None:
@@ -54,6 +56,7 @@ class OreiConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             data = {CONF_TRANSPORT: TRANSPORT_SERIAL, **user_input}
+            self._async_abort_entries_match({CONF_SERIAL_DEVICE: user_input[CONF_SERIAL_DEVICE]})
             await self.async_set_unique_id(user_input[CONF_SERIAL_DEVICE])
             self._abort_if_unique_id_configured()
             if (error := await _probe(data)) is None:
@@ -66,16 +69,24 @@ class OreiConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id="serial", data_schema=schema, errors=errors)
 
     async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Point the entry at a new host/port or serial device. The unique id is kept as it was,
-        so the device and entity ids do not change."""
+        """Point the entry at a new host/port or serial device. The unique id follows the endpoint,
+        so the old one is free again; entity and device ids are migrated to keep their registry entries."""
         entry = self._get_reconfigure_entry()
         serial = entry.data.get(CONF_TRANSPORT) == TRANSPORT_SERIAL
         errors: dict[str, str] = {}
         if user_input is not None:
             data = {**entry.data, **user_input}
+            self._async_abort_entries_match({k: data[k] for k in user_input})
+            new_id = data[CONF_SERIAL_DEVICE] if serial else f"{data[CONF_HOST]}:{data[CONF_PORT]}"
+            if new_id != entry.unique_id and self.hass.config_entries.async_entry_for_domain_unique_id(DOMAIN, new_id):
+                return self.async_abort(reason="already_configured")
             if (error := await _probe(data)) is None:
-                # The entry's update listener reloads it, so no reload here.
-                self.hass.config_entries.async_update_entry(entry, data=data)
+                old_id = entry.unique_id or entry.entry_id
+                if new_id != old_id:
+                    await _migrate_ids(self.hass, entry, old_id, new_id)
+                self.hass.config_entries.async_update_entry(entry, data=data, unique_id=new_id)
+                if not entry.update_listeners:  # a setup-retry entry has no listener yet
+                    self.hass.config_entries.async_schedule_reload(entry.entry_id)
                 return self.async_abort(reason="reconfigure_successful")
             errors["base"] = error
         current = user_input or entry.data
@@ -110,6 +121,17 @@ class OreiOptionsFlow(OptionsFlow):
         fields: dict[Any, Any] = {vol.Required(f"input_{i}", default=current[i - 1]): str for i in range(1, count + 1)}
         fields[vol.Required(CONF_SCAN_INTERVAL, default=self.config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))] = vol.All(vol.Coerce(int), vol.Range(5, 3600))
         return self.async_show_form(step_id="init", data_schema=vol.Schema(fields), errors=errors)
+
+
+async def _migrate_ids(hass, entry: ConfigEntry, old_id: str, new_id: str) -> None:
+    """Re-key the entry's entities and device from the old id to the new one, keeping their registry entries."""
+    await er.async_migrate_entries(
+        hass, entry.entry_id,
+        lambda e: {"new_unique_id": new_id + e.unique_id[len(old_id):]} if e.unique_id.startswith(f"{old_id}_") else None,
+    )
+    registry = dr.async_get(hass)
+    if device := registry.async_get_device(identifiers={(DOMAIN, old_id)}):
+        registry.async_update_device(device.id, new_identifiers={(DOMAIN, new_id)})
 
 
 def input_names(entry: ConfigEntry) -> list[str]:

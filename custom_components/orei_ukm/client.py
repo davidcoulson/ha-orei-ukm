@@ -87,25 +87,31 @@ class OreiClient:
     async def command(self, command: str) -> str:
         """Send one command line and return the reply text (may be empty)."""
         async with self._lock:
-            try:
-                async with asyncio.timeout(COMMAND_TIMEOUT), self.transport.open() as (reader, writer):
-                    writer.write((command + self.model.line_ending).encode("ascii"))
-                    await writer.drain()
-                    return await _read_reply(reader)
-            except TimeoutError as err:
-                raise OreiError("Command transaction timed out") from err
-            except OSError as err:
-                raise OreiError(f"Communication failed with {self.transport.description}: {err}") from err
+            return await self._transact(command)
+
+    async def _transact(self, command: str) -> str:
+        """One command round trip; the caller holds the lock."""
+        try:
+            async with asyncio.timeout(COMMAND_TIMEOUT), self.transport.open() as (reader, writer):
+                writer.write((command + self.model.line_ending).encode("ascii"))
+                await writer.drain()
+                return await _read_reply(reader)
+        except TimeoutError as err:
+            raise OreiError("Command transaction timed out") from err
+        except OSError as err:
+            raise OreiError(f"Communication failed with {self.transport.description}: {err}") from err
 
     async def status(self) -> Status:
         return parse_status(await self.command(self.model.status_command), self.model)
 
     async def select_input(self, number: int) -> None:
         """Switch to input `number` (1-based). Raises NoSignalError if nothing is live there."""
-        reply = await self.command(select_command(self.model, number))
-        if not check_select_reply(reply, number, self.model):
-            if (await self.status()).input != number:
-                raise OreiError(f"Switch did not confirm input {number}")
+        async with self._lock:  # one lock hold, so no other select lands between the command and its confirmation
+            reply = await self._transact(select_command(self.model, number))
+            if not check_select_reply(reply, number, self.model):
+                status = parse_status(await self._transact(self.model.status_command), self.model)
+                if status.input != number:
+                    raise OreiError(f"Switch did not confirm input {number}")
 
     async def reset(self) -> None:
         if not self.model.reset_command:

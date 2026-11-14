@@ -173,7 +173,7 @@ async def test_command_preserves_cancellation(monkeypatch, close_result):
 async def test_silent_selection_requires_confirmation(monkeypatch, status):
     client = client_for(type("Switch", (), {"port": 1})())
     command = AsyncMock(side_effect=["", status])
-    monkeypatch.setattr(client, "command", command)
+    monkeypatch.setattr(client, "_transact", command)
     if status == "PS13R OK":
         await client.select_input(3)
     else:
@@ -182,11 +182,28 @@ async def test_silent_selection_requires_confirmation(monkeypatch, status):
     assert [call.args[0] for call in command.await_args_list] == ["PS13R", "Status"]
 
 
+async def test_silent_selections_do_not_interleave(monkeypatch):
+    client = client_for(type("Switch", (), {"port": 1})())
+    seen, current = [], []
+
+    async def transact(command):
+        seen.append(command)
+        await asyncio.sleep(0)
+        if command.startswith("PS"):
+            current[:] = [command[3]]
+            return ""
+        return f"Status:\r\nBaud 9600\r\nPS1{current[0]}R OK\r\n"
+
+    monkeypatch.setattr(client, "_transact", transact)
+    await asyncio.gather(client.select_input(1), client.select_input(2))
+    assert seen == ["PS11R", "Status", "PS12R", "Status"]
+
+
 @pytest.mark.parametrize("reply", ["error", "PS11R OK"])
 async def test_selection_rejects_failure_without_confirmation(monkeypatch, reply):
     client = client_for(type("Switch", (), {"port": 1})())
     command = AsyncMock(return_value=reply)
-    monkeypatch.setattr(client, "command", command)
+    monkeypatch.setattr(client, "_transact", command)
     with pytest.raises(OreiError):
         await client.select_input(3)
     command.assert_awaited_once_with("PS13R")
