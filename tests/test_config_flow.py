@@ -58,8 +58,9 @@ async def test_reconfigure_changes_address_and_keeps_identity(hass, setup_switch
     await hass.async_block_till_done()
     assert result["type"] is FlowResultType.ABORT and result["reason"] == "reconfigure_successful"
     assert setup_switch.data[CONF_HOST] == "localhost"
-    assert setup_switch.unique_id == unique_id
-    assert er.async_get(hass).async_get_entity_id("select", DOMAIN, f"{unique_id}_input") == select_id
+    new_id = f"localhost:{fake_switch.port}"
+    assert setup_switch.unique_id == new_id
+    assert er.async_get(hass).async_get_entity_id("select", DOMAIN, f"{new_id}_input") == select_id
 
 
 async def test_reconfigure_rejects_unreachable_address(hass, setup_switch):
@@ -99,3 +100,27 @@ async def test_reconfigure_rejects_address_of_another_entry(hass, setup_switch, 
     result = await other.start_reconfigure_flow(hass)
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_HOST: "127.0.0.1", CONF_PORT: fake_switch.port})
     assert result["type"] is FlowResultType.ABORT and result["reason"] == "already_configured"
+
+
+async def test_reconfigure_frees_old_address_and_keeps_entities(hass, setup_switch, fake_switch):
+    from pytest_socket import socket_allow_hosts
+
+    socket_allow_hosts(["127.0.0.1", "localhost", "::1"])
+    from homeassistant.helpers import entity_registry as er
+
+    old_id = setup_switch.unique_id
+    before = {e.entity_id for e in er.async_entries_for_config_entry(er.async_get(hass), setup_switch.entry_id)}
+    result = await setup_switch.start_reconfigure_flow(hass)
+    await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_HOST: "localhost", CONF_PORT: fake_switch.port})
+    await hass.async_block_till_done()
+    entities = er.async_entries_for_config_entry(er.async_get(hass), setup_switch.entry_id)
+    assert {e.entity_id for e in entities} == before and before
+    assert all(e.unique_id.startswith(f"localhost:{fake_switch.port}_") for e in entities)
+
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "tcp"})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_HOST: "127.0.0.1", CONF_PORT: fake_switch.port, CONF_MODEL: "UKM-401"}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["result"].unique_id == old_id
