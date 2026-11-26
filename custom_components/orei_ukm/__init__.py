@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+import importlib
 import logging
+import sys
 
 import voluptuous as vol
 
@@ -17,7 +19,9 @@ from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv, issue_registry as ir
+from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.loader import async_get_integration
 from homeassistant.util import dt as dt_util
 
 from .client import OreiClient, SerialTransport, TcpTransport
@@ -113,6 +117,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OreiConfigEntry) -> bool
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _register_services(hass)
+    _register_reload_code(hass)
     return True
 
 
@@ -138,9 +143,6 @@ async def _reload_on_options(hass: HomeAssistant, entry: OreiConfigEntry) -> Non
 
 
 def _register_services(hass: HomeAssistant) -> None:
-    if hass.services.has_service(DOMAIN, SERVICE_SEND_COMMAND):
-        return
-
     async def send_command(call: ServiceCall) -> ServiceResponse:
         entry = hass.config_entries.async_get_entry(call.data[ATTR_CONFIG_ENTRY])
         if entry is None or entry.domain != DOMAIN or not hasattr(entry, "runtime_data"):
@@ -159,3 +161,42 @@ def _register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema({vol.Required(ATTR_CONFIG_ENTRY): cv.string, vol.Required(ATTR_COMMAND): cv.string}),
         supports_response=SupportsResponse.OPTIONAL,
     )
+
+
+def _forget_code(hass: HomeAssistant, package: str, domain: str) -> None:
+    """Drop a package's modules so the next setup imports them from disk again.
+
+    Home Assistant keeps its own copy of each imported integration module
+    (hass.data["components"], keyed "<domain>" and "<domain>.<platform>") next to
+    sys.modules; both have to go.
+    """
+    for cache, root in ((sys.modules, package), (hass.data.get("components", {}), domain),
+                        (hass.data.get("missing_platforms", {}), domain)):
+        for key in [n for n in cache if n == root or n.startswith(root + ".")]:
+            del cache[key]
+    importlib.invalidate_caches()  # or a file added since the last import may not be found
+
+
+def _register_reload_code(hass: HomeAssistant) -> None:
+    """Dev: orei_ukm.reload_code loads the Python files from disk without a restart."""
+
+    async def _reload_code(call: ServiceCall) -> None:
+        # Disabled and ignored entries are never set up, so they are not ours to reload.
+        entries = hass.config_entries.async_entries(
+            DOMAIN, include_ignore=False, include_disabled=False
+        )
+        for entry in entries:
+            if not await hass.config_entries.async_unload(entry.entry_id):
+                raise HomeAssistantError(f"{DOMAIN} did not unload; restart Home Assistant instead")
+        _forget_code(hass, __name__, DOMAIN)
+        try:
+            await (await async_get_integration(hass, DOMAIN)).async_get_component()
+        except Exception as err:
+            # This handler stays registered, so the action works again once the code is fixed.
+            raise HomeAssistantError(f"{DOMAIN} is unloaded: the new code did not load ({err}). "
+                                     f"Fix it and call {DOMAIN}.reload_code again") from err
+        failed = [e.title for e in entries if not await hass.config_entries.async_setup(e.entry_id)]
+        if failed:
+            raise HomeAssistantError(f"{DOMAIN} did not set up again for {failed}; see the log")
+
+    async_register_admin_service(hass, DOMAIN, "reload_code", _reload_code)
