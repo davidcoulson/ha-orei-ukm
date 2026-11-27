@@ -6,20 +6,31 @@ through an Ethernet-to-RS-232 adapter (raw TCP) or a serial port on the Home Ass
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
 import importlib
 import importlib.util
+import json
 import logging
 import sys
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from pathlib import Path
 
 import voluptuous as vol
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT, Platform
-from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
-from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError, ServiceValidationError
-from homeassistant.helpers import config_validation as cv, issue_registry as ir
+from homeassistant.core import (
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+)
+from homeassistant.exceptions import (
+    ConfigEntryNotReady,
+    HomeAssistantError,
+    ServiceValidationError,
+)
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.loader import BASE_PRELOAD_PLATFORMS
@@ -35,9 +46,9 @@ from .const import (
     CONF_TRANSPORT,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
-    UNREACHABLE_AFTER,
     SERVICE_SEND_COMMAND,
     TRANSPORT_SERIAL,
+    UNREACHABLE_AFTER,
 )
 from .protocol import DEFAULT_MODEL, MODELS, OreiError, Status
 
@@ -119,6 +130,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OreiConfigEntry) -> bool
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _register_services(hass)
     _register_reload_code(hass)
+    _clear_marketplace_restart(hass)
     return True
 
 
@@ -215,3 +227,20 @@ def _register_reload_code(hass: HomeAssistant) -> None:
             raise HomeAssistantError(f"{DOMAIN} did not set up again for {failed}; see the log")
 
     async_register_admin_service(hass, DOMAIN, "reload_code", _reload_code)
+
+
+_CODE_VERSION = json.loads((Path(__file__).parent / "manifest.json").read_text())["version"]
+
+
+def _clear_marketplace_restart(hass: HomeAssistant) -> None:
+    """Drop Marketplace's "restart to finish the update" repairs for Orei UKM.
+
+    Marketplace cannot see reload_code, so they would stay until a restart. Called from
+    entry setup, so it uses the new code's version even when the old handler did the reload;
+    a repair for any other version still waits.
+    """
+    for (domain, issue_id), issue in list(ir.async_get(hass).issues.items()):
+        if (domain == "marketplace" and issue_id.startswith("restart_required_")
+                and issue.issue_domain == DOMAIN
+                and issue_id.rsplit("/", 1)[-1].removeprefix("v") == _CODE_VERSION):
+            ir.async_delete_issue(hass, domain, issue_id)
